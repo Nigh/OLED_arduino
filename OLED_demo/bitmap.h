@@ -15,5 +15,15 @@ typedef struct SBITMAP
 	unsigned char* map;
 }sBITMAP;
 
+typedef enum BLENDMODE
+{
+	REPLACE,
+	OR,
+	ERASE,
+	AND,
+	NOT,
+	XOR,	// 异或
+	XNOR,	// 同或
+}eBlendMode;
 
 #endif
