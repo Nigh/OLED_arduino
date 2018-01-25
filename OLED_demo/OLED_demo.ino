@@ -122,15 +122,10 @@ void oled_Draw(sPOS* pos,sBITMAP* bitmap,eBlendMode blendmode)
 {
 	unsigned char notAlign=pos->y&0x7;
 	unsigned char offset=pos->y>>3;
+	unsigned char vw,vh;
+	unsigned char mask;
 	unsigned char i,j;
 	unsigned char bitmap_buffer[OLED_HEIGHT>>3][OLED_WIDTH]={0};
-
-	unsigned char mask[OLED_HEIGHT>>3][OLED_WIDTH]={0};	// pixel mask
-
-	// generate mask
-	// pos->y
-	// bitmap->w
-	// bitmap->h
 
 	if(notAlign){
 		for (j = 0; j < 1+1+((bitmap->h-1)>>3) && j+offset<OLED_HEIGHT>>3; ++j) {
@@ -150,19 +145,71 @@ void oled_Draw(sPOS* pos,sBITMAP* bitmap,eBlendMode blendmode)
 			}
 		}
 	}
-	switch(blendmode){
-		case REPLACE:
-		break;
-		case OR:
-		for (j = 0; j < OLED_HEIGHT>>3; ++j) {
-			for (i = 0; i < OLED_WIDTH; ++i) {
-				oled_buffer[j][i] |= bitmap_buffer[j][i];
+
+	// 实际显示宽高
+	vw=pos->x+bitmap->w>OLED_WIDTH?(OLED_WIDTH-pos->x):(bitmap->w);
+	vh=pos->y+bitmap->h>OLED_HEIGHT?(OLED_HEIGHT-pos->y):(bitmap->h);
+	unsigned char h_t=vh;	// 剩余高度
+
+	for (j=pos->y>>3; ; j++) {
+		if(notAlign && j==pos->y>>3) {
+			mask = 0xFF<<notAlign;
+			if(h_t<8) {
+				mask &= 0xFF>>(7-h_t);
+				h_t = 0;
+			} else {
+				h_t-=(8-notAlign);
 			}
+
+		} else if(h_t<8) {
+			mask = 0xFF>>(8-h_t);
+			h_t=0;
+		} else {
+			mask = 0xFF;
+			h_t-=8;
 		}
-		break;
+		switch(blendmode){
+			case REPLACE:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] = (oled_buffer[j][i]&~mask) | (bitmap_buffer[j][i]&mask);
+				}
+			break;
+			case OR:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] |= bitmap_buffer[j][i]&mask;
+				}
+			break;
+			case ERASE:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] &= (~bitmap_buffer[j][i]);
+				}
+			break;
+			case XOR:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] ^= bitmap_buffer[j][i]&mask;
+				}
+			break;
+			case AND:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] &= (oled_buffer[j][i]&~mask) | (bitmap_buffer[j][i]&mask);
+				}
+			break;
+			case NOT:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] |= (~bitmap_buffer[j][i])&mask;
+				}
+			break;
+			case XNOR:
+				for (i=pos->x; i<pos->x+vw; i++){
+					oled_buffer[j][i] = ~(oled_buffer[j][i]^(bitmap_buffer[j][i]&mask));
+				}
+			break;
+		}
+		if(h_t==0)break;
 	}
 }
 
+#define MIN_SAME_SIZE 4
 // 高位是跳跃起点，低位是跳跃终点
 unsigned int oled_vram_buffer_next_jump(unsigned char x,unsigned char y){
 	unsigned int i;
@@ -171,51 +218,49 @@ unsigned int oled_vram_buffer_next_jump(unsigned char x,unsigned char y){
 		if(oled_vram[y][i]==oled_buffer[y][i]){
 			same_count+=1;
 		}else{
-			if(same_count>5){
+			if(same_count>MIN_SAME_SIZE){
 				return ((i-same_count)<<8)|(i&0xFF);
 			}
 			same_count=0;
 		}
 	}
+    if(same_count>MIN_SAME_SIZE){
+        return ((i-same_count)<<8)|(i&0xFF);
+    }
 	return 0xFFFF;
 }
 
 // update vram to OLED screen
 void oled_Update()
 {
-	unsigned char x=0,y=0;
+	unsigned char i,x=0,y=0;
 	unsigned char jump_start,jump_to;
 	unsigned int jump;
+
 	for(y=0;y<OLED_HEIGHT>>3;y++){
-		oled_set_cursor(x,y);
-		for (x= 0; x < OLED_WIDTH; ++x) {
-			oled_vram[y][x] = oled_buffer[y][x];
-			// oled_data(oled_vram[y][x]);
+		x=0;
+		while(x<OLED_WIDTH){
+			jump = oled_vram_buffer_next_jump(x,y);
+			jump_start = (unsigned char)(jump>>8);
+			jump_to = (unsigned char)(jump&0xFF);
+
+            // printf("x=%d,y=%d,jump_start=%d,jump_to=%d\n",x,y,jump_start,jump_to);
+
+			if(x!=jump_start){
+				for (i = x; i < jump_start && i<OLED_WIDTH-1; ++i) {
+                    // printf("oled_vram[%d][%d] = oled_buffer[%d][%d] = %02x\n",y,i,y,i,oled_buffer[y][i]);
+					oled_vram[y][i] = oled_buffer[y][i];
+				}
+                // printf("oled_datas(&(oled_vram[%d][%d]),%d)\n",y,x,jump_start-x);
+				oled_set_cursor(x,y);
+				jump_start = jump_start>OLED_WIDTH?OLED_WIDTH:jump_start;
+				oled_datas(&(oled_vram[y][x]),jump_start-x);
+			}
+			if(jump_to>=OLED_WIDTH) break;
+			// oled_set_cursor(jump_to,y);
+			x = jump_to;
 		}
-		oled_datas(oled_vram[y],OLED_WIDTH);
 	}
-	// for(y=0;y<OLED_HEIGHT>>3;y++){
-	// 	x=0;
-	// 	Serial.print("Y");
-	// 	while(x<OLED_WIDTH){
-	// 		jump = oled_vram_buffer_next_jump(x,y);
-	// 		jump_start = (unsigned char)(jump>>8);
-	// 		jump_to = (unsigned char)(jump&0xFF);
-
-	// 		if(x!=jump_start){
-	// 			oled_set_cursor(x,y);
-	// 		}
-
-	// 		while(x!=jump_start){
-	// 			oled_vram[y][x] = oled_buffer[y][x];
-	// 			oled_data(oled_vram[y][x]);
-	// 			if(x++>=OLED_WIDTH) break;
-	// 		}
-	// 		if(x>=OLED_WIDTH) break;
-	// 		oled_set_cursor(jump_to,y);
-	// 		x = jump_to;
-	// 	}
-	// }
 }
 
 void oled_draw_bitmap(sPOS* pos,sBITMAP* bitmap)
@@ -249,9 +294,15 @@ void oled_set_cursor(unsigned char x, unsigned char y)
 {
 	// static unsigned char cmd[]={0xb0+y+2,((x&0xf0)>>4)|0x10,(x&0x0f)|0x01};
 	// oled_cmds(cmd,3);
+	// x+=1;
 	oled_command(0xb0+y);
-	oled_command(((x&0xf0)>>4)|0x10);
-	oled_command((x&0x0f)|0x01);
+	// oled_command((x&0x0f)|0x01);
+	oled_command((x&0x0f));
+	oled_command((x>>4)|0x10);
+	// Serial.print("set xy=");
+	// Serial.print(x);
+	// Serial.print(',');
+	// Serial.println(y);
 }
 
 void oled_On(void)
@@ -281,7 +332,12 @@ void oled_datas(unsigned char* data,unsigned char length)
 {
 	digitalWrite(DC, 1);
 	digitalWrite(CS, 0);
-	while(length-->0) shiftOut(D1, D0, MSBFIRST, *data++);
+	while(length-->0){
+		// Serial.print(*data,HEX);
+		// Serial.print(',');
+		shiftOut(D1, D0, MSBFIRST, *data++);
+	}
+	// Serial.print("\n");
 	// soft_spi_wr(data);
 	digitalWrite(CS, 1);
 }
