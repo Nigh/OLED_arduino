@@ -43,37 +43,38 @@ void loop(void)
 	sample_draw();
 }
 
+extern sBITMAP loading_anime[];
+extern sBITMAP rolling_cat[];
+extern sBITMAP anime_frame_group1[];
 extern sBITMAP pTest1;
 extern sBITMAP pTest2;
 extern sBITMAP pTest3;
 extern sBITMAP pA64;
 extern sBITMAP pDot;
+extern sBITMAP pqr_code;
 void sample_draw(void)
 {
 	static unsigned char i=0;
 	static char ud=1,lr=1;
 	static sPOS pos0={1,1};
-	// switch(i){
-	// 	default: i=0;
-	// 	case 0: oled_Clear();oled_draw_bitmap(&pos0,&pTest1); break;
-	// 	case 1: oled_draw_bitmap(&pos0,&pTest2); break;
-	// 	case 2: oled_draw_bitmap(&pos0,&pTest3); break;
-	// 	// case 3: oled_draw_bitmap(&pos0,&pA64); break;
-	// }
-	// i++;
-	Serial.print("x=");
-	Serial.print(pos0.x);
-	Serial.print(" y=");
-	Serial.println(pos0.y);
-	oled_Draw(&pos0,&pDot,OR);
+	static sPOS pos1={7,7};
+	// oled_Draw(&pos0,&pDot,OR);
+	// oled_Update();
+	// pos1.y+=ud;
+	// pos1.x+=lr;
+	// if(pos1.x>=OLED_WIDTH-loading_anime[0].w)lr=-1;
+	// if(pos1.y>=OLED_HEIGHT-loading_anime[0].h)ud=-1;
+	// if(pos1.x<1)lr=1;
+	// if(pos1.y<1)ud=1;
+
+	delay(60);
+	oled_Draw(&pos0,&pqr_code,REPLACE);
+	oled_Draw(&pos1,&loading_anime[i],ERASE);
+	// oled_Draw(&pos0,&rolling_cat[i],REPLACE);
 	oled_Update();
-	pos0.y+=ud;
-	pos0.x+=lr;
-	if(pos0.x>=OLED_WIDTH-2)lr=-1;
-	if(pos0.y>=OLED_HEIGHT-2)ud=-1;
-	if(pos0.x<=1)lr=1;
-	if(pos0.y<=1)ud=1;
+	i=i+1>7?0:i+1;
 }
+
 
 
 void oled_setup(void)
