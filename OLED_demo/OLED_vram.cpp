@@ -7,40 +7,62 @@ unsigned char oled_vram[OLED_HEIGHT>>3][OLED_WIDTH]={0};
 // draw to buffer
 void oled_Draw(sPOS* pos,sBITMAP* bitmap,eBlendMode blendmode)
 {
-	unsigned char notAlign=pos->y&0x7;
-	unsigned char offset=pos->y>>3;
-	unsigned char vw,vh;
+	short notAlign=pos->y;
+	unsigned char offset=pos->y/8;
+	short h_t;	// 剩余高度
 	unsigned char mask;
-	unsigned char i,j;
+	unsigned char vy,by,yh;
+	short i,j,bline=0,sline=0;
 	unsigned char bitmap_buffer[OLED_HEIGHT>>3][OLED_WIDTH]={0};
+	sRECT vrect;	// 实际显示区域矩形
+	sRECT brect={0,0,0,0};	// 位图显示区域矩形
 
-	if(notAlign){
-		for (j = 0; j < 1+1+((bitmap->h-1)>>3) && j+offset<OLED_HEIGHT>>3; ++j) {
-			for (i = 0; i < bitmap->w && pos->x+i<OLED_WIDTH; ++i){
-				if(j>0){
-					bitmap_buffer[offset+j][pos->x+i] |= bitmap->map[i+(j-1)*bitmap->w]>>(8-notAlign);
-				}
-				if(j < 1+((bitmap->h-1)>>3)){
-					bitmap_buffer[offset+j][pos->x+i] |= bitmap->map[i+j*bitmap->w]<<notAlign;
-				}
-			}
-		}
-	}else{
-		for (j = 0; j < 1+((bitmap->h-1)>>3) && j+offset<OLED_HEIGHT>>3; ++j) {
-			for (i = 0; i < bitmap->w && pos->x+i<OLED_WIDTH; ++i) {
-				bitmap_buffer[offset+j][pos->x+i] |= bitmap->map[i+j*bitmap->w];
-			}
+	while(notAlign<0) notAlign+=256;
+	notAlign=(unsigned short)(notAlign)&0x7;
+
+	// 实际显示宽高
+	#define max(a,b) ((a)>=(b)?(a):(b))
+	#define min(a,b) ((a)<(b)?(a):(b))
+	vrect.x=max(0,pos->x);
+	vrect.y=max(0,pos->y);
+	vrect.w=min(OLED_WIDTH,pos->x+bitmap->w)-vrect.x;
+	vrect.h=min(OLED_HEIGHT,pos->y+bitmap->h)-vrect.y;
+	if(pos->x<0)brect.x=bitmap->w-vrect.w;
+	if(pos->y<0)brect.y=bitmap->h-vrect.h;
+	brect.w=vrect.w;
+	brect.h=vrect.h;
+	#undef max(a,b)
+	#undef min(a,b)
+	// 在画布外
+	if(vrect.w<=0 || vrect.h<=0) return;
+
+	#define bitmap(x,y) bitmap->map[(x)+(y)*bitmap->w]
+
+	vy=vrect.y;
+	by=brect.y;
+
+	while(vy<vrect.y+vrect.h){
+		if(vy&0x7){		// $by should be 0 here
+			yh=(8-vy&0x7);
+			for (i = 0; i < vrect.w; ++i){bitmap_buffer[vy/8][i+vrect.x] |= bitmap(i+brect.x,by/8)<<(8-yh); }
+			vy+=yh; by+=yh;
+		}else if(by&0x7){	//$vy&0x7 should be 0 here
+			yh=(8-by&0x7);
+			for (i = 0; i < vrect.w; ++i){bitmap_buffer[vy/8][i+vrect.x] |= bitmap(i+brect.x,by/8)>>(8-yh); }
+			vy+=yh; by+=yh;
+		}else{
+			yh=8;
+			for (i = 0; i < vrect.w; ++i){bitmap_buffer[vy/8][i+vrect.x] = bitmap(i+brect.x,by/8); }
+			vy+=8; by+=8;
 		}
 	}
 
-	// 实际显示宽高
-	vw=pos->x+bitmap->w>OLED_WIDTH?(OLED_WIDTH-pos->x):(bitmap->w);
-	vh=pos->y+bitmap->h>OLED_HEIGHT?(OLED_HEIGHT-pos->y):(bitmap->h);
-	unsigned char h_t=vh;	// 剩余高度
+	#undef bitmap(x,y)
 
-	for (j=pos->y>>3; ; j++) {
-		if(notAlign && j==pos->y>>3) {
-
+	h_t=vrect.h;
+	notAlign=(unsigned short)(vrect.y)&0x7;
+	for (j=vrect.y/8; ; j++) {
+		if(notAlign && j==vrect.y/8) {
 			mask = 0xFF<<notAlign;		// 底端对齐
 			if(h_t>=8-notAlign){
 				h_t-=(8-notAlign);
@@ -48,12 +70,6 @@ void oled_Draw(sPOS* pos,sBITMAP* bitmap,eBlendMode blendmode)
 				mask &= 0xFF>>(8-notAlign-h_t);
 				h_t=0;
 			}
-			// if(h_t<8) {
-			// 	mask &= 0xFF>>(8-notAlign-h_t);
-			// 	h_t = 0;
-			// } else {
-			// 	h_t-=(8-notAlign);
-			// }
 		} else if(h_t<8) {
 			mask = 0xFF>>(8-h_t);
 			h_t=0;
@@ -64,37 +80,37 @@ void oled_Draw(sPOS* pos,sBITMAP* bitmap,eBlendMode blendmode)
 		switch(blendmode){
 			default:
 			case REPLACE:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] = (oled_buffer[j][i]&~mask) | (bitmap_buffer[j][i]&mask);
 				}
 			break;
 			case OR:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] |= bitmap_buffer[j][i]&mask;
 				}
 			break;
 			case ERASE:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] &= (~bitmap_buffer[j][i]);
 				}
 			break;
 			case XOR:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] ^= bitmap_buffer[j][i]&mask;
 				}
 			break;
 			case AND:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] &= (oled_buffer[j][i]&~mask) | (bitmap_buffer[j][i]&mask);
 				}
 			break;
 			case NOT:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] |= (~bitmap_buffer[j][i])&mask;
 				}
 			break;
 			case XNOR:
-				for (i=pos->x; i<pos->x+vw; i++){
+				for (i=vrect.x; i<vrect.x+vrect.w; i++){
 					oled_buffer[j][i] = ~(oled_buffer[j][i]^(bitmap_buffer[j][i]&mask));
 				}
 			break;

@@ -4,8 +4,8 @@
 
 typedef struct SPOS
 {
-	unsigned char x;
-	unsigned char y;
+	short x;
+	short y;
 }sPOS;
 
 typedef struct SBITMAP
@@ -14,6 +14,14 @@ typedef struct SBITMAP
 	unsigned char h;
 	unsigned char* map;
 }sBITMAP;
+
+typedef struct SRECT
+{
+	short x;
+	short y;
+	short w;
+	short h;
+}sRECT;
 
 typedef enum BLENDMODE
 {
